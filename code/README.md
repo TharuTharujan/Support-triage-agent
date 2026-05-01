@@ -38,6 +38,12 @@ and writes:
 support_tickets/output.csv
 ```
 
+Output columns are written in this exact order:
+
+```text
+issue,subject,company,response,product_area,status,request_type,justification
+```
+
 You can override paths:
 
 ```bash

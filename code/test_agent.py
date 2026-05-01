@@ -20,11 +20,14 @@ from validator import OUTPUT_FIELDS, REQUEST_TYPES, STATUSES
 ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = ROOT / "data"
 REQUIRED_OUTPUT_FIELDS = [
-    "status",
-    "product_area",
+    "issue",
+    "subject",
+    "company",
     "response",
-    "justification",
+    "product_area",
+    "status",
     "request_type",
+    "justification",
 ]
 
 
@@ -196,8 +199,13 @@ class SupportTriageAgentTests(unittest.TestCase):
             self.assertEqual(OUTPUT_FIELDS, REQUIRED_OUTPUT_FIELDS)
             self.assertIn(rows[0]["status"], STATUSES)
             self.assertIn(rows[0]["request_type"], REQUEST_TYPES)
+            self.assertEqual(rows[0]["issue"], "How do I dispute a charge?")
+            self.assertEqual(rows[0]["subject"], "Dispute charge")
+            self.assertEqual(rows[0]["company"], "Visa")
             for row in rows:
                 for field in REQUIRED_OUTPUT_FIELDS:
+                    if field in {"subject", "company"}:
+                        continue
                     self.assertTrue(row[field].strip(), f"{field} must not be blank")
         finally:
             input_path.unlink(missing_ok=True)
@@ -215,6 +223,8 @@ class SupportTriageAgentTests(unittest.TestCase):
                 self.assertIn(row["status"], STATUSES)
                 self.assertIn(row["request_type"], REQUEST_TYPES)
                 for field in REQUIRED_OUTPUT_FIELDS:
+                    if field in {"subject", "company"}:
+                        continue
                     self.assertTrue(row[field].strip(), f"{field} must not be blank")
         finally:
             output_path.unlink(missing_ok=True)
@@ -235,8 +245,8 @@ class SupportTriageAgentTests(unittest.TestCase):
     def test_run_report_prints_challenge_summary(self) -> None:
         output_path = ROOT / "code" / "_test_report_output.csv"
         output_path.write_text(
-            "status,product_area,response,justification,request_type\n"
-            "replied,screen,Answer,Justification,product_issue\n",
+            "issue,subject,company,response,product_area,status,request_type,justification\n"
+            "Issue,Subject,HackerRank,Answer,screen,replied,product_issue,Justification\n",
             encoding="utf-8",
         )
         stream = StringIO()
@@ -255,7 +265,7 @@ class SupportTriageAgentTests(unittest.TestCase):
             self.assertIn("LLM provider: gemini", report)
             self.assertIn("Generation mode: llm-assisted", report)
             self.assertNotIn("secret", report.lower())
-            self.assertIn("Output schema: status, product_area, response, justification, request_type", report)
+            self.assertIn("Output schema: issue, subject, company, response, product_area, status, request_type, justification", report)
             self.assertIn("Rows processed: 1", report)
         finally:
             output_path.unlink(missing_ok=True)
@@ -263,8 +273,8 @@ class SupportTriageAgentTests(unittest.TestCase):
     def test_run_report_prints_local_fallback_when_no_llm_used(self) -> None:
         output_path = ROOT / "code" / "_test_report_fallback_output.csv"
         output_path.write_text(
-            "status,product_area,response,justification,request_type\n"
-            "replied,unsupported,Answer,Justification,invalid\n",
+            "issue,subject,company,response,product_area,status,request_type,justification\n"
+            "Issue,Subject,None,Answer,unsupported,replied,invalid,Justification\n",
             encoding="utf-8",
         )
         stream = StringIO()

@@ -79,7 +79,7 @@ def process_csv(input_path: Path, output_path: Path, data_dir: Path) -> RunSumma
         issue = row.get("Issue") or row.get("issue") or ""
         subject = row.get("Subject") or row.get("subject") or ""
         company = row.get("Company") or row.get("company") or ""
-        rows.append(result_to_row(agent.triage(issue, subject, company)))
+        rows.append(result_to_row(agent.triage(issue, subject, company), issue, subject, company))
     validate_output_rows(rows)
     if _write_with_pandas(rows, output_path):
         return _run_summary(agent)
