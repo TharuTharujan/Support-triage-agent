@@ -7,6 +7,9 @@ from chunker import tokenize
 from models import Document
 
 
+ALLOWED_CORPUS_ROOTS = {"claude", "hackerrank", "visa"}
+
+
 def load_corpus(data_dir: Path) -> list[Document]:
     documents: list[Document] = []
     for path in sorted(data_dir.rglob("*.md")):
@@ -17,6 +20,8 @@ def load_corpus(data_dir: Path) -> list[Document]:
         relative = path.relative_to(data_dir)
         parts = relative.parts
         company = parts[0].lower() if parts else "unknown"
+        if company not in ALLOWED_CORPUS_ROOTS:
+            continue
         title = _title_from_markdown(path, text)
         documents.append(
             Document(

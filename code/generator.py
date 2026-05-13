@@ -83,10 +83,19 @@ def _unique_titles(hits: list[RetrievalHit]) -> list[str]:
 
 
 def _clean_snippet(text: str, max_chars: int = 360) -> str:
+    text = re.sub(r"^\s*---\s+.*?\s+---\s*", "", text, flags=re.DOTALL)
     lines = []
+    in_frontmatter = False
     for line in text.splitlines():
         stripped = re.sub(r"\s+", " ", line.strip())
-        if not stripped or stripped.startswith("#") or stripped.startswith("|"):
+        if stripped == "---":
+            in_frontmatter = not in_frontmatter
+            continue
+        if in_frontmatter:
+            continue
+        if stripped.startswith("#"):
+            stripped = stripped.lstrip("#").strip()
+        if not stripped or stripped.startswith("|"):
             continue
         if stripped.startswith("[") or stripped.startswith("!"):
             continue

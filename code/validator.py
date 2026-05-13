@@ -23,10 +23,15 @@ def validate_result(result: TriageResult) -> None:
         raise ValueError(f"Invalid status: {result.status}")
     if result.request_type not in REQUEST_TYPES:
         raise ValueError(f"Invalid request_type: {result.request_type}")
+    product_area_blank_allowed = result.request_type == "invalid" or (
+        result.status == "escalated" and result.request_type == "bug"
+    )
     for field_name in RESULT_FIELDS:
         value = getattr(result, field_name)
         if not isinstance(value, str):
             raise ValueError(f"{field_name} must be a string")
+        if field_name == "product_area" and product_area_blank_allowed:
+            continue
         if not value.strip():
             raise ValueError(f"{field_name} must not be blank")
 
@@ -58,8 +63,13 @@ def validate_output_rows(rows: list[dict[str, str]]) -> None:
             raise ValueError(f"Invalid status: {row['status']}")
         if row["request_type"] not in REQUEST_TYPES:
             raise ValueError(f"Invalid request_type: {row['request_type']}")
+        product_area_blank_allowed = row["request_type"] == "invalid" or (
+            row["status"] == "escalated" and row["request_type"] == "bug"
+        )
         for field_name in OUTPUT_FIELDS:
             if field_name in {"subject", "company"}:
+                continue
+            if field_name == "product_area" and product_area_blank_allowed:
                 continue
             if not str(row.get(field_name, "")).strip():
                 raise ValueError(f"{field_name} must not be blank")

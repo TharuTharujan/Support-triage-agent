@@ -9,7 +9,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from agent import SupportTriageAgent, iter_results, process_csv
-from loader import load_corpus
+from evaluate_sample import compare_rows, evaluate_sample, print_report
+from loader import ALLOWED_CORPUS_ROOTS, load_corpus
 from llm_client import detect_provider
 from main import print_run_report, resolve_default_input
 from models import RunSummary
@@ -62,6 +63,7 @@ class SupportTriageAgentTests(unittest.TestCase):
     def test_loads_local_corpus_and_retrieves_relevant_article(self) -> None:
         documents = load_corpus(DATA_DIR)
         self.assertGreater(len(documents), 50)
+        self.assertTrue({document.company for document in documents} <= ALLOWED_CORPUS_ROOTS)
         retriever = HybridRetriever(documents)
         matches = retriever.retrieve(
             "How do I invite candidates to a HackerRank test?",
@@ -173,6 +175,72 @@ class SupportTriageAgentTests(unittest.TestCase):
                 self.assertEqual(result.status, "escalated")
                 self.assertIn(result.request_type, REQUEST_TYPES)
 
+    def test_broad_hackerrank_submission_failure_escalates_as_bug(self) -> None:
+        result = self.agent.triage(
+            "None of the submissions across any challenges are working on your website.",
+            "Issue while taking the test",
+            "HackerRank",
+        )
+        self.assertEqual(result.status, "escalated")
+        self.assertEqual(result.request_type, "bug")
+
+    def test_hackerrank_hiring_user_removal_uses_settings_docs(self) -> None:
+        cases = [
+            (
+                "I am trying to remove an interviewer from the platform. "
+                "I am not seeing this as an option next to their name.",
+                "How to Remove a User",
+            ),
+            (
+                "One of my employees has left. I want to remove them from our "
+                "HackerRank hiring account.",
+                "Employee leaving the company",
+            ),
+        ]
+        for issue, subject in cases:
+            with self.subTest(subject=subject):
+                result = self.agent.triage(issue, subject, "HackerRank")
+                self.assertEqual(result.status, "replied")
+                self.assertEqual(result.product_area, "settings")
+                self.assertIn("Teams Management", result.response)
+
+    def test_hackerrank_pause_subscription_replies_from_direct_article(self) -> None:
+        result = self.agent.triage(
+            "Hi, please pause our subscription. We have stopped all hiring efforts for now.",
+            "Subscription pause",
+            "HackerRank",
+        )
+        self.assertEqual(result.status, "replied")
+        self.assertEqual(result.request_type, "product_issue")
+        self.assertEqual(result.product_area, "settings")
+        self.assertIn("Pause Subscription", result.response)
+
+    def test_visa_charge_dispute_replies_with_issuer_guidance(self) -> None:
+        result = self.agent.triage("How do I dispute a charge?", "Dispute charge", "Visa")
+        self.assertEqual(result.status, "replied")
+        self.assertEqual(result.product_area, "dispute_resolution")
+        self.assertIn("issuer or bank", result.response.lower())
+
+    def test_claude_security_vulnerability_replies_with_public_reporting_guidance(self) -> None:
+        result = self.agent.triage(
+            "I have found a major security vulnerability in Claude, what are the next steps?",
+            "Bug bounty",
+            "Claude",
+        )
+        self.assertEqual(result.status, "replied")
+        self.assertIn("Public Vulnerability Reporting", result.response)
+        self.assertNotIn("internal rules", result.response.lower())
+
+    def test_claude_bedrock_failures_reply_with_aws_support_route(self) -> None:
+        result = self.agent.triage(
+            "All requests to Claude with AWS Bedrock are failing.",
+            "Issues in Project",
+            "Claude",
+        )
+        self.assertEqual(result.status, "replied")
+        self.assertEqual(result.product_area, "amazon_bedrock")
+        self.assertIn("AWS Support", result.response)
+
     def test_marks_irrelevant_request_invalid(self) -> None:
         result = self.agent.triage(
             "What is the name of the actor in Iron Man?",
@@ -181,7 +249,61 @@ class SupportTriageAgentTests(unittest.TestCase):
         )
         self.assertEqual(result.status, "replied")
         self.assertEqual(result.request_type, "invalid")
-        self.assertEqual(result.product_area, "unsupported")
+        self.assertEqual(result.product_area, "conversation_management")
+
+    def test_courtesy_only_message_is_invalid_with_blank_product_area(self) -> None:
+        result = self.agent.triage("Thank you for helping me", "", "None")
+        self.assertEqual(result.status, "replied")
+        self.assertEqual(result.request_type, "invalid")
+        self.assertEqual(result.product_area, "")
+
+    def test_generic_unknown_company_outage_escalates_with_blank_product_area(self) -> None:
+        result = self.agent.triage("site is down & none of the pages are accessible", "", "None")
+        self.assertEqual(result.status, "escalated")
+        self.assertEqual(result.request_type, "bug")
+        self.assertEqual(result.product_area, "")
+
+    def test_simple_visa_lost_card_reporting_is_replied_general_support(self) -> None:
+        result = self.agent.triage(
+            "Where can I report a lost or stolen Visa card from India?",
+            "Card stolen",
+            "Visa",
+        )
+        self.assertEqual(result.status, "replied")
+        self.assertEqual(result.request_type, "product_issue")
+        self.assertEqual(result.product_area, "general_support")
+
+    def test_risky_visa_stolen_card_context_still_escalates(self) -> None:
+        result = self.agent.triage(
+            "My Visa card was stolen and there are unauthorized transactions on my account.",
+            "Stolen card",
+            "Visa",
+        )
+        self.assertEqual(result.status, "escalated")
+
+    def test_hackerrank_community_routes_to_community(self) -> None:
+        result = self.agent.triage(
+            "I signed up using Google login on HackerRank Community. Please delete my account.",
+            "",
+            "HackerRank",
+        )
+        self.assertEqual(result.product_area, "community")
+
+    def test_hackerrank_test_variant_questions_route_to_screen(self) -> None:
+        result = self.agent.triage(
+            "When should I create frontend developer variants versus a different test?",
+            "Default role versions",
+            "HackerRank",
+        )
+        self.assertEqual(result.product_area, "screen")
+
+    def test_claude_private_conversation_routes_to_privacy(self) -> None:
+        result = self.agent.triage(
+            "One Claude conversation has private info. Can I delete or manage the conversation privacy?",
+            "",
+            "Claude",
+        )
+        self.assertEqual(result.product_area, "privacy")
 
     def test_process_csv_writes_exact_required_columns_and_valid_values(self) -> None:
         input_path = ROOT / "code" / "_test_input.csv"
@@ -206,7 +328,32 @@ class SupportTriageAgentTests(unittest.TestCase):
                 for field in REQUIRED_OUTPUT_FIELDS:
                     if field in {"subject", "company"}:
                         continue
+                    if field == "product_area" and (
+                        row["request_type"] == "invalid"
+                        or (row["status"] == "escalated" and row["request_type"] == "bug")
+                    ):
+                        continue
                     self.assertTrue(row[field].strip(), f"{field} must not be blank")
+        finally:
+            input_path.unlink(missing_ok=True)
+            output_path.unlink(missing_ok=True)
+
+    def test_process_csv_preserves_literal_none_company_from_input(self) -> None:
+        input_path = ROOT / "code" / "_test_none_company_input.csv"
+        output_path = ROOT / "code" / "_test_none_company_output.csv"
+        input_path.write_text(
+            "Issue,Subject,Company\n"
+            "\"What is the name of the actor in Iron Man?\",Urgent,None\n",
+            encoding="utf-8",
+        )
+        try:
+            process_csv(input_path, output_path, DATA_DIR)
+            rows = list(iter_results(output_path))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["issue"], "What is the name of the actor in Iron Man?")
+            self.assertEqual(rows[0]["subject"], "Urgent")
+            self.assertEqual(rows[0]["company"], "None")
+            self.assertEqual(rows[0]["request_type"], "invalid")
         finally:
             input_path.unlink(missing_ok=True)
             output_path.unlink(missing_ok=True)
@@ -224,6 +371,11 @@ class SupportTriageAgentTests(unittest.TestCase):
                 self.assertIn(row["request_type"], REQUEST_TYPES)
                 for field in REQUIRED_OUTPUT_FIELDS:
                     if field in {"subject", "company"}:
+                        continue
+                    if field == "product_area" and (
+                        row["request_type"] == "invalid"
+                        or (row["status"] == "escalated" and row["request_type"] == "bug")
+                    ):
                         continue
                     self.assertTrue(row[field].strip(), f"{field} must not be blank")
         finally:
@@ -290,6 +442,58 @@ class SupportTriageAgentTests(unittest.TestCase):
             self.assertIn("Generation mode: local fallback", report)
         finally:
             output_path.unlink(missing_ok=True)
+
+    def test_sample_evaluator_compares_requested_fields(self) -> None:
+        expected_rows = [
+            {
+                "Issue": "Issue one",
+                "Subject": "Subject one",
+                "Company": "HackerRank",
+                "Status": "Replied",
+                "Product Area": "screen",
+                "Request Type": "product_issue",
+            }
+        ]
+        generated_rows = [
+            {
+                "status": "replied",
+                "product_area": "screen",
+                "request_type": "bug",
+            }
+        ]
+        report = compare_rows(expected_rows, generated_rows)
+        self.assertEqual(report.row_count, 1)
+        self.assertEqual(report.scores[0].field, "status")
+        self.assertEqual(report.scores[0].accuracy, 100.0)
+        self.assertEqual(report.scores[1].field, "product_area")
+        self.assertEqual(report.scores[1].accuracy, 100.0)
+        self.assertEqual(report.scores[2].field, "request_type")
+        self.assertEqual(report.scores[2].accuracy, 0.0)
+        self.assertEqual(len(report.mismatches), 1)
+        self.assertEqual(report.mismatches[0].subject, "Subject one")
+        self.assertEqual(report.mismatches[0].company, "HackerRank")
+
+        stream = StringIO()
+        with redirect_stdout(stream):
+            print_report(report)
+        output = stream.getvalue()
+        self.assertIn("issue: Issue one", output)
+        self.assertIn("subject: Subject one", output)
+        self.assertIn("company: HackerRank", output)
+        self.assertIn("expected='product_issue', predicted='bug'", output)
+
+    def test_sample_evaluator_deletes_temp_predictions(self) -> None:
+        temp_output_path = ROOT / "code" / "_sample_eval_test_output.csv"
+        try:
+            report = evaluate_sample(
+                ROOT / "support_tickets" / "sample_support_tickets.csv",
+                temp_output_path,
+                DATA_DIR,
+            )
+            self.assertEqual(report.row_count, 10)
+            self.assertFalse(temp_output_path.exists())
+        finally:
+            temp_output_path.unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
