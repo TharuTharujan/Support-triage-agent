@@ -210,6 +210,3 @@ packages.
 - Run `python code/main.py`.
 - Run `python code/evaluate_output.py`.
 - Confirm `support_tickets/output.csv` is present and schema-valid.
-- Zip the `code/` directory only; exclude virtualenvs, caches, `data/`, and
-  `support_tickets/`.
-- Upload the code zip, `support_tickets/output.csv`, and the required chat log.
