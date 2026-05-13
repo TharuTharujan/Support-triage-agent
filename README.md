@@ -1,134 +1,215 @@
-# HackerRank Orchestrate
+# HackerRank Orchestrate Support Triage Agent
 
-Starter repository for the **HackerRank Orchestrate** 24-hour hackathon (May 1–2, 2026).
+Terminal-based Python agent for the HackerRank Orchestrate support triage task.
+It reads support tickets, grounds decisions in the local `data/` corpus, and
+writes evaluator-ready predictions to `support_tickets/output.csv`.
 
-Build a terminal-based AI agent that triages real support tickets across three product ecosystems; **HackerRank**, **Claude**, and **Visa** — using only the support corpus shipped in this repo.
+## Problem Understanding
 
-Read [`problem_statement.md`](./problem_statement.md) for the full task spec, input/output schema, and allowed values, and [`evalutation_criteria.md`](./evalutation_criteria.md) for how submissions are scored.
+Each ticket must be classified and either answered or escalated across three
+support domains: HackerRank, Claude, and Visa. The agent must preserve the input
+fields, produce the required output schema, avoid unsupported claims, and
+escalate sensitive or high-risk cases instead of guessing.
 
----
+Required generated fields:
 
-## Contents
-
-1. [Repository layout](#repository-layout)
-2. [What you need to build](#what-you-need-to-build)
-3. [Where your code goes](#where-your-code-goes)
-4. [Quickstart](#quickstart)
-5. [Chat transcript logging](#chat-transcript-logging)
-6. [Submission](#submission)
-7. [Judge interview](#judge-interview)
-8. [Evaluation criteria](#evaluation-criteria)
-
----
-
-## Repository layout
-
-```
-.
-├── AGENTS.md                       # Rules for AI coding tools + transcript logging
-├── problem_statement.md            # Full task description and I/O schema
-├── README.md                       # You are here
-├── code/                           # ← Build your agent here
-│   └── main.py                     #   Entry point (rename/extend as you like)
-├── data/                           # Local-only support corpus (no network needed)
-│   ├── hackerrank/                 #   HackerRank help center
-│   ├── claude/                     #   Claude Help Center export
-│   └── visa/                       #   Visa consumer + small-business support
-└── support_tickets/
-    ├── sample_support_tickets.csv  # Inputs + expected outputs (for development)
-    ├── support_tickets.csv         # Inputs only (run your agent on these)
-    └── output.csv                  # Write your agent's predictions here
+```text
+response, product_area, status, request_type, justification
 ```
 
----
+Allowed values:
 
-## What you need to build
+```text
+status: replied | escalated
+request_type: product_issue | feature_request | bug | invalid
+```
 
-A terminal-based agent that, for each row in `support_tickets/support_tickets.csv`, produces:
+## Architecture
 
-| Column         | Allowed values                                          |
-| -------------- | ------------------------------------------------------- |
-| `status`       | `replied`, `escalated`                                  |
-| `product_area` | most relevant support category / domain area            |
-| `response`     | user-facing answer grounded in the provided corpus      |
-| `justification`| concise explanation of the routing/answering decision   |
-| `request_type` | `product_issue`, `feature_request`, `bug`, `invalid`    |
+```text
+support_tickets/*.csv
+        |
+        v
+main.py argument parsing
+        |
+        v
+loader.py -> normalized Ticket objects
+        |
+        v
+agent.py orchestration
+        |
+        +--> chunker.py loads markdown chunks from ../data/
+        +--> retriever.py ranks local support evidence
+        +--> rules.py classifies product area, request type, and escalation risk
+        +--> generator.py builds grounded response and justification
+        +--> llm_client.py optionally rewrites only from retrieved context
+        |
+        v
+validator.py schema/value checks
+        |
+        v
+support_tickets/output.csv
+```
 
-Hard requirements (from `problem_statement.md`):
+## Exact Run Command
 
-- Must be **terminal-based**.
-- Must use **only the provided support corpus** (no live web calls for ground-truth answers).
-- Must **escalate** high-risk, sensitive, or unsupported cases instead of guessing.
-- Must avoid hallucinated policies or unsupported claims.
-
-Beyond that you are free to bring your own approach — RAG, vector DBs, tool use, structured output, agent frameworks, classical ML, or anything else.
-
----
-
-## Where your code goes
-
-All of your work belongs in [`code/`](./code/). The repo ships with an empty `code/main.py` you can grow into your full agent — add more modules (`agent.py`, `retriever.py`, `classifier.py`, etc.) next to it as needed.
-
-Conventions:
-
-- Put a **README inside `code/`** describing how to install dependencies and run your agent.
-- Read secrets **from environment variables only** (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, …). Copy `.env.example` → `.env` (already gitignored) if you keep one. **Never hardcode keys.**
-- Be **deterministic** where possible. Seed any random sampling.
-- Write responses to `support_tickets/output.csv`.
-
----
-
-## Quickstart
-
-Clone this repository:
+From the repository root:
 
 ```bash
-git clone git@github.com:interviewstreet/hackerrank-orchestrate-may26.git
-cd hackerrank-orchestrate-may26
+python code/main.py
 ```
 
-You are free to use any language or runtime. We recommend **Python**, **JavaScript**, or **TypeScript**.
+Default input:
 
----
+```text
+support_tickets/support_tickets.csv
+```
 
-## Chat transcript logging
+Default output:
 
-This repo ships with an `AGENTS.md` that any modern AI coding tool (Cursor, Claude Code, Codex, Gemini CLI, Copilot, etc.) will read. It instructs the tool to append every conversation turn to a single shared log file:
+```text
+support_tickets/output.csv
+```
 
-| Platform       | Path                                              |
-| -------------- | ------------------------------------------------- |
-| macOS / Linux  | `$HOME/hackerrank_orchestrate/log.txt`            |
-| Windows        | `%USERPROFILE%\hackerrank_orchestrate\log.txt`    |
+Optional dry run path:
 
-You don't need to do anything to enable it — just use your AI tool normally. You'll upload this `log.txt` as your chat transcript at submission time.
+```bash
+python code/main.py --input support_tickets/support_tickets.csv --output code/dry_run_output.csv
+```
 
----
+## How To Test
 
-## Submission
+Run the unit test suite from the repository root:
 
-Submit on the HackerRank Community Platform:
-<https://www.hackerrank.com/contests/hackerrank-orchestrate-may26/challenges/support-agent/submission>
+```bash
+python -m unittest discover -s code
+```
 
-You will upload **three** files:
+This validates core routing, retrieval, generation, schema, and safety behavior.
 
-1. **Code zip** — zip your `code/` directory and upload it. Exclude virtualenvs, `node_modules`, build artifacts, the `data/` corpus, and the `support_tickets/` CSVs.
-2. **Predictions CSV** — your agent's output for `support_tickets/support_tickets.csv` (i.e. the populated `output.csv`).
-3. **Chat transcript** — the `log.txt` from the path in [Chat transcript logging](#chat-transcript-logging).
+## Evaluate Sample Predictions
 
----
+Use the labeled sample file to compare generated predictions against expected
+sample labels for `status`, `product_area`, and `request_type`:
 
-## Judge interview
+```bash
+python code/evaluate_sample.py
+```
 
-After a successful submission, your AI Judge interview will happen within a few hours after the hackathon ends. It will stay open for the next 4 hours. 
+The script runs the agent on `support_tickets/sample_support_tickets.csv`,
+prints field-level accuracy, lists mismatches, and removes its temporary output.
 
-The AI Judge will have access to your submission and may ask about your approach, decisions, and how you used AI while building your solution. The interview will be 30 minutes long, and keeping your camera on is mandatory.
+## Evaluate Final Output
 
-Results will be announced on May 15, 2026
+After generating `support_tickets/output.csv`, run:
 
----
+```bash
+python code/evaluate_output.py
+```
 
-## Evaluation criteria
+This checks:
 
-Submissions are scored across four dimensions: agent design (your `code/`), the AI Judge interview, output accuracy on `support_tickets/output.csv`, and AI fluency from your chat transcript.
+- required 8-column schema
+- row count match with `support_tickets/support_tickets.csv`
+- preservation of `issue`, `subject`, and `company`
+- valid `status` and `request_type` values
+- blank generated fields
+- warning patterns for high-risk or overly generic rows
 
-See [`evalutation_criteria.md`](./evalutation_criteria.md) for the full rubric.
+## Retrieval Strategy
+
+The agent chunks the local markdown corpus and ranks evidence per ticket. It
+uses the best available local retriever:
+
+- TF-IDF with scikit-learn when installed
+- optional FAISS plus sentence-transformers when installed
+- deterministic lexical scoring as a no-dependency fallback
+
+Company, subject, and issue text are combined for search. Retrieved titles and
+snippets are passed into generation and justification so answers remain
+traceable to local support content.
+
+## Local Corpus Grounding
+
+The source of truth is the repository-local `data/` directory:
+
+```text
+data/hackerrank/
+data/claude/
+data/visa/
+```
+
+The agent does not use live web pages as policy sources. If the corpus does not
+support a safe answer, the agent escalates or marks the issue invalid rather
+than inventing details.
+
+## Optional LLM Mode
+
+The default mode is deterministic local fallback. If a supported provider key is
+present, `llm_client.py` may ask the provider to improve wording using only the
+retrieved local context. The model is not treated as an independent knowledge
+source, and failures automatically fall back to deterministic generation.
+
+Supported environment variables include:
+
+```text
+OPENAI_API_KEY
+ANTHROPIC_API_KEY
+GEMINI_API_KEY or GOOGLE_API_KEY
+OPENROUTER_API_KEY
+GROQ_API_KEY
+MISTRAL_API_KEY
+TOGETHER_API_KEY
+COHERE_API_KEY
+AZURE_OPENAI_API_KEY with AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT
+OPENAI_COMPATIBLE_API_KEY with OPENAI_COMPATIBLE_BASE_URL
+```
+
+API keys are read only from environment variables and are never printed.
+
+## Safety And Escalation Rules
+
+The rules layer escalates cases involving fraud, unauthorized transactions,
+identity theft, billing/payment/refunds, account access restoration, hiring
+outcomes, assessment integrity, legal/privacy issues, security concerns,
+platform-wide outages, prompt injection, and unsupported authority-specific
+requests.
+
+Escalation is preferred when a direct answer would require account verification,
+private data, payment authority, legal judgment, or policy not present in the
+local corpus.
+
+## Why Fallback Mode Is Reliable
+
+Fallback mode is deterministic, uses no network calls, and depends only on local
+files plus explicit rules. It preserves input rows, validates the output schema,
+and chooses conservative escalation for uncertain or high-risk tickets. This
+makes it reproducible for judges even without API keys or optional retrieval
+packages.
+
+## Limitations
+
+- Product-area labels depend on the supplied corpus and rule coverage.
+- The sample evaluator compares only three labeled fields, not full response
+  quality.
+- Optional LLM mode can improve wording but cannot add unsupported facts.
+- Ambiguous tickets may be escalated even when a human support agent could ask a
+  follow-up question.
+
+## Future Improvements
+
+- Add calibrated confidence scores for retrieval and escalation decisions.
+- Expand labeled regression cases for edge categories and multi-intent tickets.
+- Add richer citation metadata in justifications.
+- Tune product-area normalization against more judge examples.
+
+## Final Submission Checklist
+
+- Run `python -m unittest discover -s code`.
+- Run `python code/evaluate_sample.py`.
+- Run `python code/main.py`.
+- Run `python code/evaluate_output.py`.
+- Confirm `support_tickets/output.csv` is present and schema-valid.
+- Zip the `code/` directory only; exclude virtualenvs, caches, `data/`, and
+  `support_tickets/`.
+- Upload the code zip, `support_tickets/output.csv`, and the required chat log.
